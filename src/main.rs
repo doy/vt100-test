@@ -2,6 +2,10 @@ use futures::stream::Stream as _;
 use std::io::Write as _;
 
 fn main() {
+    env_logger::from_env(
+        env_logger::Env::default().default_filter_or("error"),
+    )
+    .init();
     let (cmd, args) = if std::env::args().count() > 1 {
         (
             std::env::args().nth(1).unwrap(),

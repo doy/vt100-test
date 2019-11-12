@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 crossterm = "0.13"
+env_logger = "0.7"
 futures = "0.1.29"
 mio = "0.6"
 tokio = "0.1.22"
