@@ -91,6 +91,12 @@ impl futures::future::Future for Passthrough {
                     self.term.process(&data);
                     write(&self.term.screen().contents_diff(&screen))
                         .map_err(|e| self.err(e))?;
+                    write(&self.term.screen().input_mode_diff(&screen))
+                        .map_err(|e| self.err(e))?;
+                    write(&self.term.screen().title_diff(&screen))
+                        .map_err(|e| self.err(e))?;
+                    write(&self.term.screen().bells_diff(&screen))
+                        .map_err(|e| self.err(e))?;
                 }
                 Some(tokio_pty_process_stream::Event::Resize {
                     size: (rows, cols),
