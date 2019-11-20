@@ -1,4 +1,5 @@
 use std::io::Read as _;
+use unicode_width::UnicodeWidthStr as _;
 
 #[derive(Default)]
 struct Printer {
@@ -12,7 +13,7 @@ impl Printer {
 
     fn flush(&mut self) {
         if !self.chars.is_empty() {
-            println!("TEXT \"{}\"", self.chars);
+            println!("TEXT({}) \"{}\"", self.chars.width(), self.chars);
             self.chars.clear();
         }
     }
