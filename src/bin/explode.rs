@@ -130,6 +130,7 @@ fn main() {
             for b in frame.data {
                 vte.advance(&mut printer, b);
             }
+            printer.flush();
         }
     }
 }
