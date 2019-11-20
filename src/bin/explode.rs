@@ -1,18 +1,37 @@
-use std::io::Read as _;
+use std::io::{Read as _, Write as _};
 use unicode_width::UnicodeWidthStr as _;
 
-#[derive(Default)]
 struct Printer {
+    base: std::time::Instant,
+    offset: std::time::Duration,
     chars: String,
+    writer: ttyrec::Creator,
+    frames: Vec<ttyrec::Frame>,
 }
 
 impl Printer {
+    fn new() -> Self {
+        Self {
+            base: std::time::Instant::now(),
+            offset: std::time::Duration::default(),
+            chars: String::default(),
+            writer: ttyrec::Creator::default(),
+            frames: vec![],
+        }
+    }
+
     fn append(&mut self, c: char) {
         self.chars.push(c);
     }
 
+    fn frame(&mut self, bytes: &[u8]) {
+        self.frames
+            .push(self.writer.frame_at(self.base + self.offset, bytes));
+    }
+
     fn flush(&mut self) {
         if !self.chars.is_empty() {
+            self.frame(self.chars.clone().as_bytes());
             println!("TEXT({}) \"{}\"", self.chars.width(), self.chars);
             self.chars.clear();
         }
@@ -26,6 +45,7 @@ impl vte::Perform for Printer {
 
     fn execute(&mut self, b: u8) {
         self.flush();
+        self.frame(&[b]);
         println!("CTRL {}", (b + b'@') as char);
     }
 
@@ -39,9 +59,11 @@ impl vte::Perform for Printer {
         self.flush();
         match intermediates.get(0) {
             None => {
+                self.frame(&[0x1b, b]);
                 println!("ESC {}", b as char);
             }
             Some(i) => {
+                self.frame(&[0x1b, *i, b]);
                 println!("ESC {} {}", *i as char, b as char);
             }
         }
@@ -55,11 +77,19 @@ impl vte::Perform for Printer {
         c: char,
     ) {
         self.flush();
+        let mut bytes = vec![0x1b, b'['];
         match intermediates.get(0) {
             None => {
+                bytes.extend(param_bytes(params));
+                bytes.push(c as u8);
+                self.frame(&bytes);
                 println!("CSI {} {}", param_str(params), c);
             }
             Some(i) => {
+                bytes.push(*i);
+                bytes.extend(param_bytes(params));
+                bytes.push(c as u8);
+                self.frame(&bytes);
                 println!("CSI {} {} {}", *i as char, param_str(params), c);
             }
         }
@@ -67,6 +97,10 @@ impl vte::Perform for Printer {
 
     fn osc_dispatch(&mut self, params: &[&[u8]]) {
         self.flush();
+        let mut bytes = vec![0x1b, b']'];
+        bytes.extend(osc_param_bytes(params));
+        bytes.push(7);
+        self.frame(&bytes);
         println!("OSC {}", osc_param_str(params));
     }
 
@@ -93,6 +127,14 @@ fn param_str(params: &[i64]) -> String {
     strs.join(" ; ")
 }
 
+fn param_bytes(params: &[i64]) -> Vec<u8> {
+    let strs: Vec<_> = params
+        .iter()
+        .map(std::string::ToString::to_string)
+        .collect();
+    strs.join(";").into_bytes()
+}
+
 fn osc_param_str(params: &[&[u8]]) -> String {
     let strs: Vec<_> = params
         .iter()
@@ -101,17 +143,25 @@ fn osc_param_str(params: &[&[u8]]) -> String {
     strs.join(" ; ")
 }
 
+fn osc_param_bytes(params: &[&[u8]]) -> Vec<u8> {
+    let strs: Vec<_> = params
+        .iter()
+        .map(|b| format!("\"{}\"", std::string::String::from_utf8_lossy(*b)))
+        .collect();
+    strs.join(";").into_bytes()
+}
+
 fn main() {
     env_logger::from_env(
         env_logger::Env::default().default_filter_or("error"),
     )
     .init();
 
-    let mut ttyrec = ttyrec::Parser::new();
+    let filename = std::env::args().nth(1).unwrap();
+    let mut reader = ttyrec::Parser::new();
     let mut vte = vte::Parser::new();
-    let mut printer = Printer::default();
-    let mut file =
-        std::fs::File::open(std::env::args().nth(1).unwrap()).unwrap();
+    let mut printer = Printer::new();
+    let mut file = std::fs::File::open(filename.clone()).unwrap();
     let mut frame_idx = 1;
 
     let mut buf = [0; 4096];
@@ -120,17 +170,25 @@ fn main() {
         if n == 0 {
             break;
         }
-        ttyrec.add_bytes(&buf[..n]);
-        while let Some(frame) = ttyrec.next_frame() {
+        reader.add_bytes(&buf[..n]);
+        while let Some(frame) = reader.next_frame() {
             if frame_idx > 1 {
                 println!();
             }
             println!("FRAME {}", frame_idx);
             frame_idx += 1;
+            printer.offset = frame.time;
             for b in frame.data {
                 vte.advance(&mut printer, b);
             }
             printer.flush();
         }
+    }
+
+    let mut file =
+        std::fs::File::create(format!("exploded-{}", filename)).unwrap();
+    for frame in printer.frames {
+        let data: Vec<_> = std::convert::TryFrom::try_from(frame).unwrap();
+        file.write_all(&data).unwrap();
     }
 }
