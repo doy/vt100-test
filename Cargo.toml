@@ -4,6 +4,8 @@ version = "0.1.0"
 authors = ["Jesse Luehrs <doy@tozt.net>"]
 edition = "2018"
 
+default-run = "vt100-test"
+
 [dependencies]
 crossterm = "0.13"
 env_logger = "0.7"
